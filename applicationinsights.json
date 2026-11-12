@@ -1,0 +1,40 @@
+{
+  "connectionString": "${AZURE_MONITOR_CONNECTION_STRING}",
+  "role": {
+    "name": "auth-service"
+  },
+  "sampling": {
+    "percentage": 100.0
+  },
+  "instrumentation": {
+    "logging": {
+      "level": "INFO"
+    },
+    "micrometer": {
+      "enabled": true
+    },
+    "jdbc": {
+      "enabled": true
+    },
+    "redis": {
+      "enabled": true
+    },
+    "kafka": {
+      "enabled": true
+    },
+    "springScheduling": {
+      "enabled": true
+    }
+  },
+  "preview": {
+    "captureHttpServer4xxAsError": true,
+    "captureHttpServerHeaders": {
+      "requestHeaders": ["content-type", "user-agent"],
+      "responseHeaders": ["content-type"]
+    }
+  },
+  "selfDiagnostics": {
+    "level": "INFO",
+    "destination": "console"
+  }
+}

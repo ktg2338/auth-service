@@ -1,0 +1,98 @@
+name: Build and Deploy to Azure Container Apps
+
+on:
+  push:
+    branches: [ main ]
+
+env:
+  AZURE_RESOURCE_GROUP: 'aif-prod-rg'
+  AZURE_CONTAINER_REGISTRY: 'aifprodacr'
+  AZURE_CONTAINER_APP_NAME: 'auth-prod'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login (Service Principal Secret)
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: ACR Login (no password)
+        run: az acr login -n ${{ env.AZURE_CONTAINER_REGISTRY }}
+
+      - name: Build & Push
+        run: |
+          IMG=${{ env.AZURE_CONTAINER_REGISTRY }}.azurecr.io/${{ env.AZURE_CONTAINER_APP_NAME }}:${{ github.sha }}
+          docker build -t "$IMG" .
+          docker push "$IMG"
+
+      - name: Update Container App Image
+        run: |
+          az containerapp update \
+            -g ${{ env.AZURE_RESOURCE_GROUP }} \
+            -n ${{ env.AZURE_CONTAINER_APP_NAME }} \
+            --image ${{ env.AZURE_CONTAINER_REGISTRY }}.azurecr.io/${{ env.AZURE_CONTAINER_APP_NAME }}:${{ github.sha }}
+
+#시크릿 변경
+#      - name: Set ACA secrets
+#        run: |
+#          az containerapp secret set \
+#            -g ${{ env.AZURE_RESOURCE_GROUP }} \
+#            -n ${{ env.AZURE_CONTAINER_APP_NAME }} \
+#            --secrets \
+#              azure-monitor-connection-string="${{ secrets.AZURE_MONITOR_CONNECTION_STRING }}" \
+#              azure-redis-password="${{ secrets.AZURE_REDIS_PASSWORD }}" \
+#              db-url="${{ secrets.DB_URL }}" \
+#              db-username="${{ secrets.DB_USERNAME }}" \
+#              db-password="${{ secrets.DB_PASSWORD }}" \
+#              redis-host="${{ secrets.REDIS_HOST }}" \
+#              redis-port="${{ secrets.REDIS_PORT }}" \
+#              jwt-secret="${{ secrets.JWT_SECRET }}" \
+#              google-client-id="${{ secrets.GOOGLE_CLIENT_ID }}" \
+#              google-client-secret="${{ secrets.GOOGLE_CLIENT_SECRET }}" \
+#              kakao-client-id="${{ secrets.KAKAO_CLIENT_ID }}" \
+#              kakao-client-secret="${{ secrets.KAKAO_CLIENT_SECRET }}"
+#
+#      - name: Link secrets to env vars
+#        run: |
+#          az containerapp update \
+#            -g ${{ env.AZURE_RESOURCE_GROUP }} \
+#            -n ${{ env.AZURE_CONTAINER_APP_NAME }} \
+#            --set-env-vars \
+#              SPRING_PROFILES_ACTIVE=prod \
+#              AZURE_MONITOR_CONNECTION_STRING=secretref:azure-monitor-connection-string \
+#              AZURE_REDIS_PASSWORD=secretref:azure-redis-password \
+#              DB_URL=secretref:db-url \
+#              DB_USERNAME=secretref:db-username \
+#              DB_PASSWORD=secretref:db-password \
+#              REDIS_HOST=secretref:redis-host \
+#              REDIS_PORT=secretref:redis-port \
+#              JWT_SECRET=secretref:jwt-secret \
+#              GOOGLE_CLIENT_ID=secretref:google-client-id \
+#              GOOGLE_CLIENT_SECRET=secretref:google-client-secret \
+#              KAKAO_CLIENT_ID=secretref:kakao-client-id \
+#              KAKAO_CLIENT_SECRET=secretref:kakao-client-secret \
+#            --image ${{ env.AZURE_CONTAINER_REGISTRY }}.azurecr.io/${{ env.AZURE_CONTAINER_APP_NAME }}:${{ github.sha }}
+
+      - name: Cleanup old images (keep last 10)
+        continue-on-error: true
+        run: |
+          TAGS=$(az acr repository show-tags \
+            -n ${{ env.AZURE_CONTAINER_REGISTRY }} \
+            --repository ${{ env.AZURE_CONTAINER_APP_NAME }} \
+            --orderby time_desc --output tsv | tail -n +11)
+
+          for tag in $TAGS; do
+            az acr repository delete \
+              -n ${{ env.AZURE_CONTAINER_REGISTRY }} \
+              --image ${{ env.AZURE_CONTAINER_APP_NAME }}:$tag \
+              --yes || true
+          done
